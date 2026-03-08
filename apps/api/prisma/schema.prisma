@@ -1,0 +1,284 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  WHOLESALE
+  RETAIL
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  BLOCKED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum InventoryMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+// ─── MODELS ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  password     String
+  name         String
+  role         UserRole   @default(RETAIL)
+  status       UserStatus @default(ACTIVE)
+  businessName String?
+  creditLimit  Float?     @default(0)
+  phone        String?
+  refreshToken String?
+
+  addresses Address[]
+  orders    Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Address {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name    String
+  street  String
+  city    String
+  state   String
+  country String
+  zip     String
+  phone   String?
+  isDefault Boolean @default(false)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("addresses")
+}
+
+model Category {
+  id           String    @id @default(cuid())
+  name         String
+  slug         String    @unique
+  icon         String?
+  description  String?
+  products     Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("categories")
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  sku         String        @unique
+  description String?
+  images      String[]
+  brand       String?
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+  retailPrice Float
+  wholesalePrice Float
+  stock       Int           @default(0)
+  minStock    Int           @default(10)
+  status      ProductStatus @default(ACTIVE)
+  warehouseLocation String?
+
+  volumePricing  VolumePricing[]
+  variants       ProductVariant[]
+  orderItems     OrderItem[]
+  inventoryMovements InventoryMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+model VolumePricing {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  minQty    Int
+  maxQty    Int?
+  price     Float
+
+  @@map("volume_pricing")
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  type      String  // 'size' | 'color'
+  options   String[]
+
+  @@map("product_variants")
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  customerId      String
+  customer        User          @relation(fields: [customerId], references: [id])
+  shippingAddressId String?
+  shippingAddress Address?      @relation(fields: [shippingAddressId], references: [id])
+  items           OrderItem[]
+  subtotal        Float
+  shipping        Float         @default(0)
+  tax             Float         @default(0)
+  total           Float
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod
+  couponCode      String?
+  discountAmount  Float         @default(0)
+  notes           String?
+
+  payment         Payment?
+  statusHistory   OrderStatusHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  productName String
+  quantity    Int
+  unitPrice   Float
+  subtotal    Float
+  selectedVariants Json?
+
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@map("order_status_history")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String        @unique
+  order           Order         @relation(fields: [orderId], references: [id])
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  amount          Float
+  currency        String        @default("USD")
+  stripePaymentIntentId String?
+  stripeChargeId  String?
+  transferProofUrl String?
+  transferReference String?
+  failureReason   String?
+  paidAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payments")
+}
+
+model Coupon {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  description     String?
+  discountType    String   // 'percentage' | 'fixed'
+  discountValue   Float
+  minOrderAmount  Float?
+  maxUses         Int?
+  usedCount       Int      @default(0)
+  validFrom       DateTime
+  validUntil      DateTime
+  isActive        Boolean  @default(true)
+  appliesToRole   UserRole?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("coupons")
+}
+
+model InventoryMovement {
+  id          String                @id @default(cuid())
+  productId   String
+  product     Product               @relation(fields: [productId], references: [id])
+  type        InventoryMovementType
+  quantity    Int
+  reason      String?
+  reference   String?               // orderId or manual note
+  createdAt   DateTime              @default(now())
+
+  @@map("inventory_movements")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // 'order' | 'stock' | 'customer' | 'system'
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
